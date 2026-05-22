@@ -663,3 +663,10 @@ INFO:     Application startup complete.
 /Users/javster01/Desktop/GEPA/.venv/lib/python3.14/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names
   warnings.warn(
 INFO:     127.0.0.1:65348 - "POST /predict/schedule HTTP/1.1" 200 OK
+WARNING:  StatReload detected changes in 'views/streamlit_app.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [61706]
+INFO:     Started server process [62559]
+INFO:     Waiting for application startup.

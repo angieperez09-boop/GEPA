@@ -28,7 +28,7 @@ st.set_page_config(
 
 APR_LOGO  = "https://www.pazdelrio.com.co/wp-content/uploads/2023/04/Grupo-403.svg"
 UPTC_LOGO = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/Logo_de_la_UPTC.svg/512px-Logo_de_la_UPTC.svg.png"
-API_URL   = "http://localhost:8000/predict/schedule"
+API_URL   = "https://gepa.onrender.com/predict/schedule"
 
 CSS = """
 <style>
