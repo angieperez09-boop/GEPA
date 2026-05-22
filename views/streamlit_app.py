@@ -181,6 +181,15 @@ st.markdown(f"""
     color: #CCCCCC !important;
     font-size: 0.82rem;
   }}
+  section[data-testid="stSidebar"] {{
+    min-width: 250px !important;
+    transform: none !important;
+    display: block !important;
+  }}
+  [data-testid="collapsedControl"] {{
+    display: flex !important;
+    visibility: visible !important;
+  }}
 
   /* Botón principal */
   .stButton > button {{
