@@ -15,7 +15,16 @@ from controllers.scheduler import run_scheduler
 from controllers.config import get_family
 from controllers.optimizer import optimize_campaign_order
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="GEPA Scheduling API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
