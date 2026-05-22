@@ -180,12 +180,6 @@ st.markdown(f"""
   [data-testid="stSidebar"] .stTextInput label {{
     color: #CCCCCC !important;
     font-size: 0.82rem; 
-    [data-testid="stSidebar"] input {{
-    color: #35352E !important;
-    background: #FFFFFF !important;
-  }}
-  [data-testid="stSidebar"] .stDateInput input {{
-    color: #35352E !important;
   }}
   section[data-testid="stSidebar"] {{
     min-width: 250px !important;
@@ -196,7 +190,12 @@ st.markdown(f"""
     display: flex !important;
     visibility: visible !important;
   }}
-
+    [data-testid="stSidebar"] input {{
+    color: #35352E !important;
+    background: #FFFFFF !important;
+  }}
+  [data-testid="stSidebar"] .stDateInput input 
+    color: #35352E !important;
   /* Botón principal */
   .stButton > button {{
     background: {COLOR_RED};
