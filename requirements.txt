@@ -1,15 +1,12 @@
-pandas
-numpy
-matplotlib
-seaborn
-scikit-learn
-xgboost
-shap
-pyarrow
-openpyxl
-ipykernel
-notebook
-fastapi
-uvicorn
-streamlit
-requests
+  fastapi==0.115.0
+uvicorn==0.30.6
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.6.1
+xgboost==2.1.1
+joblib==1.4.2
+pyarrow==16.1.0
+openpyxl==3.1.5
+requests==2.32.3
+streamlit==1.38.0
+shap==0.46.0
