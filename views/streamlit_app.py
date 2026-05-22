@@ -235,24 +235,20 @@ if uploaded_morgan is not None:
                     j = resp.json()
                     for res in j.get('results', []):
                         st.subheader(f"Programación {res.get('plant')}")
-                        out_path = res.get('download')
-                        if out_path:
-                            try:
-                                df_full = pd.read_excel(out_path)
-                                # prefer effective t/día for UI: replace raw column with effective if available
-                                if 't/día efectiva' in df_full.columns:
-                                    df_full['t/día'] = df_full['t/día efectiva']
-                                    try:
-                                        df_full = df_full.drop(columns=['t/día efectiva'])
-                                    except Exception:
-                                        pass
-                                st.write(f"Mostrando planilla completa: {len(df_full)} filas")
-                                st.dataframe(df_full)
-                                st.download_button(f"Descargar {res.get('plant')}", to_excel_bytes(df_full), file_name=out_path.split('/')[-1])
-                            except Exception as e:
-                                st.warning(f"No fue posible leer el archivo completo en servidor: {e}")
+                      excel_b64 = res.get('excel_b64')
+                        filename = res.get('filename', f"{res.get('plant')}_schedule.xlsx")
+                        if excel_b64:
+                            import base64, io
+                            excel_bytes = base64.b64decode(excel_b64)
+                            df_full = pd.read_excel(io.BytesIO(excel_bytes))
+                            if 't/día efectiva' in df_full.columns:
+                                df_full['t/día'] = df_full['t/día efectiva']
+                                df_full = df_full.drop(columns=['t/día efectiva'], errors='ignore')
+                            st.write(f"Mostrando planilla completa: {len(df_full)} filas")
+                            st.dataframe(df_full)
+                            st.download_button(f"Descargar {res.get('plant')}", excel_bytes, file_name=filename)
                         else:
-                            st.warning("El servidor no devolvió la planilla completa; no se mostrará preview.")
+                            st.warning("El servidor no devolvió el cronograma.")
             except Exception as e:
                 st.error(f"Error enviando al servidor: {e}")
     except Exception as e:
