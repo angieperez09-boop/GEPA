@@ -235,7 +235,7 @@ if uploaded_morgan is not None:
                     j = resp.json()
                     for res in j.get('results', []):
                         st.subheader(f"Programación {res.get('plant')}")
-                      excel_b64 = res.get('excel_b64')
+                        excel_b64 = res.get('excel_b64')
                         filename = res.get('filename', f"{res.get('plant')}_schedule.xlsx")
                         if excel_b64:
                             import base64, io
