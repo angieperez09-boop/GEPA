@@ -5,253 +5,352 @@ import os
 import sys
 import pathlib
 import re
+import base64
+import io
 from datetime import date, datetime, time
 import pandas as pd
 import numpy as np
 import streamlit as st
 
-# Ensure project root is on sys.path so MVC packages resolve when Streamlit runs
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from controllers.utils.parsers import (
-    validate_input_df,
-    featurize,
-    lookup_setup_duration,
-    lookup_monthly_mtto_profile,
-    allocate_monthly_mtto,
-    lookup_util_pct,
-    match_to_canonical,
+    validate_input_df, featurize, lookup_setup_duration,
+    lookup_monthly_mtto_profile, allocate_monthly_mtto,
+    lookup_util_pct, match_to_canonical,
 )
 from controllers.scheduler import run_scheduler
 from controllers.config import get_family
 from controllers.optimizer import optimize_campaign_order
 
+# ─── CONFIG ────────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="GEPA-LAMIN | Acerías PazdelRío",
+    page_icon="🏭",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
+APR_LOGO = "https://www.pazdelrio.com.co/wp-content/uploads/2023/04/Grupo-403.svg"
+UPTC_LOGO = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/Logo_de_la_UPTC.svg/512px-Logo_de_la_UPTC.svg.png"
+API_URL = "https://gepa.onrender.com/predict/schedule"
+
+COLOR_DARK   = "#35352E"
+COLOR_RED    = "#C0392B"
+COLOR_GOLD   = "#D4A017"
+COLOR_LIGHT  = "#F5F5F0"
+COLOR_WHITE  = "#FFFFFF"
+
+# ─── CSS CORPORATIVO ────────────────────────────────────────────────────────
+st.markdown(f"""
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+
+  html, body, [class*="css"] {{
+    font-family: 'Inter', sans-serif;
+    background-color: {COLOR_LIGHT};
+  }}
+
+  /* Header */
+  .gepa-header {{
+    background: linear-gradient(135deg, {COLOR_DARK} 0%, #1a1a14 100%);
+    padding: 1.2rem 2rem;
+    border-radius: 0 0 12px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  }}
+  .gepa-header-left {{
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
+  }}
+  .gepa-header h1 {{
+    color: {COLOR_WHITE};
+    font-size: 1.8rem;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: 1px;
+  }}
+  .gepa-header p {{
+    color: #AAAAAA;
+    font-size: 0.85rem;
+    margin: 0;
+    letter-spacing: 0.5px;
+  }}
+  .gepa-badge {{
+    background: {COLOR_RED};
+    color: white;
+    padding: 0.25rem 0.7rem;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 1px;
+  }}
+
+  /* KPI Cards */
+  .kpi-container {{
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }}
+  .kpi-card {{
+    background: {COLOR_WHITE};
+    border-radius: 12px;
+    padding: 1.2rem 1.5rem;
+    flex: 1;
+    border-left: 4px solid {COLOR_DARK};
+    box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+  }}
+  .kpi-card.red   {{ border-left-color: {COLOR_RED}; }}
+  .kpi-card.gold  {{ border-left-color: {COLOR_GOLD}; }}
+  .kpi-card.green {{ border-left-color: #27AE60; }}
+  .kpi-label {{
+    font-size: 0.75rem;
+    color: #888;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 0.3rem;
+  }}
+  .kpi-value {{
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: {COLOR_DARK};
+    line-height: 1;
+  }}
+  .kpi-sub {{
+    font-size: 0.75rem;
+    color: #888;
+    margin-top: 0.2rem;
+  }}
+
+  /* Sección */
+  .section-title {{
+    font-size: 1rem;
+    font-weight: 700;
+    color: {COLOR_DARK};
+    border-bottom: 2px solid {COLOR_RED};
+    padding-bottom: 0.4rem;
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }}
+
+  /* Overflow row */
+  .overflow-alert {{
+    background: #FDECEA;
+    border: 1px solid {COLOR_RED};
+    border-radius: 8px;
+    padding: 0.8rem 1.2rem;
+    color: {COLOR_RED};
+    font-weight: 600;
+    margin-top: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }}
+
+  /* Footer */
+  .gepa-footer {{
+    background: {COLOR_DARK};
+    color: #AAAAAA;
+    padding: 1rem 2rem;
+    border-radius: 12px 12px 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 2rem;
+    font-size: 0.78rem;
+  }}
+  .gepa-footer strong {{ color: {COLOR_WHITE}; }}
+
+  /* Sidebar */
+  [data-testid="stSidebar"] {{
+    background: {COLOR_DARK};
+  }}
+  [data-testid="stSidebar"] * {{
+    color: {COLOR_WHITE} !important;
+  }}
+  [data-testid="stSidebar"] .stFileUploader label,
+  [data-testid="stSidebar"] .stDateInput label,
+  [data-testid="stSidebar"] .stTextInput label {{
+    color: #CCCCCC !important;
+    font-size: 0.82rem;
+  }}
+
+  /* Botón principal */
+  .stButton > button {{
+    background: {COLOR_RED};
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    padding: 0.6rem 2rem;
+    font-size: 0.95rem;
+    width: 100%;
+    transition: background 0.2s;
+  }}
+  .stButton > button:hover {{
+    background: #A93226;
+  }}
+
+  /* Tabla */
+  .dataframe {{ border-radius: 8px; overflow: hidden; }}
+  thead tr th {{ background: {COLOR_DARK} !important; color: white !important; }}
+
+  /* Ocultar menú Streamlit */
+  #MainMenu, footer, header {{ visibility: hidden; }}
+</style>
+""", unsafe_allow_html=True)
+
+
+# ─── HEADER ─────────────────────────────────────────────────────────────────
+st.markdown(f"""
+<div class="gepa-header">
+  <div class="gepa-header-left">
+    <img src="{APR_LOGO}" height="52" style="filter: brightness(0) invert(1);" onerror="this.style.display='none'"/>
+    <div>
+      <h1>GEPA-LAMIN</h1>
+      <p>Sistema Predictivo de Programación de Producción · Trenes Laminadores</p>
+    </div>
+  </div>
+  <div style="display:flex; align-items:center; gap:1rem;">
+    <span class="gepa-badge">ML POWERED</span>
+    <span style="color:#888; font-size:0.78rem;">Acerías PazdelRío · Sogamoso</span>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ─── MODELOS ────────────────────────────────────────────────────────────────
 @st.cache_resource
 def load_models():
     try:
-        from joblib import load
-        models_dir = ROOT / 'models' / 'artifacts'
-        xgb = load(models_dir / 'xgb.joblib') if (models_dir / 'xgb.joblib').exists() else None
-        enc = load(models_dir / 'encoders.joblib') if (models_dir / 'encoders.joblib').exists() else None
-        fcols = load(models_dir / 'feature_cols.joblib') if (models_dir / 'feature_cols.joblib').exists() else []
-        mtto = load(models_dir / 'mtto_lookup.joblib') if (models_dir / 'mtto_lookup.joblib').exists() else None
-        setup = load(models_dir / 'setup_lookup.joblib') if (models_dir / 'setup_lookup.joblib').exists() else None
-        imprevistas_lookup = load(models_dir / 'imprevistas_lookup.joblib') if (models_dir / 'imprevistas_lookup.joblib').exists() else None
-        imprevistas_model = load(models_dir / 'imprevistas_model.joblib') if (models_dir / 'imprevistas_model.joblib').exists() else None
-        util = load(models_dir / 'util_lookup.joblib') if (models_dir / 'util_lookup.joblib').exists() else None
-        util_product = load(models_dir / 'util_product_lookup.joblib') if (models_dir / 'util_product_lookup.joblib').exists() else None
-        return xgb, enc, fcols, mtto, setup, imprevistas_lookup, imprevistas_model, util, util_product
+        from joblib import load as jload
+        d = ROOT / 'models' / 'artifacts'
+        return (
+            jload(d / 'xgb.joblib') if (d / 'xgb.joblib').exists() else None,
+            jload(d / 'encoders.joblib') if (d / 'encoders.joblib').exists() else None,
+            jload(d / 'feature_cols.joblib') if (d / 'feature_cols.joblib').exists() else [],
+            jload(d / 'mtto_lookup.joblib') if (d / 'mtto_lookup.joblib').exists() else None,
+            jload(d / 'setup_lookup.joblib') if (d / 'setup_lookup.joblib').exists() else None,
+            jload(d / 'imprevistas_lookup.joblib') if (d / 'imprevistas_lookup.joblib').exists() else None,
+            jload(d / 'imprevistas_model.joblib') if (d / 'imprevistas_model.joblib').exists() else None,
+            jload(d / 'util_lookup.joblib') if (d / 'util_lookup.joblib').exists() else None,
+            jload(d / 'util_product_lookup.joblib') if (d / 'util_product_lookup.joblib').exists() else None,
+        )
     except Exception:
         return (None,) * 9
 
 
-def predict_local(X, df_feat, plant_name, month):
-    xgb_model, encoders, feature_cols, mtto_lookup, setup_lookup, imprevistas_lookup, imprevistas_model, util_lookup, util_product_lookup = load_models()
-
-    n = len(X)
-    if xgb_model is None or encoders is None:
-        return pd.DataFrame({
-            "product_t_h": [50.0] * n,
-            "mtto_h": [0.0] * n,
-            "setup_h": [0.0] * n,
-            "paradas_imprev_h": [0.0] * n,
-            "util_pct": [0.0] * n,
-        })
-
-    le = encoders['producto']
-    tipo_cod = 0 if 'MORGAN' in plant_name.upper() else 1
-    X_m = X.copy()
-    matched = X_m['producto'].apply(lambda m: match_to_canonical(m, le.classes_))
-    X_m['producto_cod'] = le.transform(matched)
-    X_m['tipo_cod'] = tipo_cod
-
-    matched_list = matched.tolist()
-    familias = [get_family(m) for m in matched_list]
-
-    # mtto: allocate monthly profile
-    mtto = np.zeros(n)
-    if mtto_lookup is not None:
-        mtto_count, mtto_duration = lookup_monthly_mtto_profile(mtto_lookup, tipo_cod, month)
-        mtto = allocate_monthly_mtto(matched_list, mtto_count, mtto_duration)
-
-    # setup
-    setup = np.zeros(n)
-    if setup_lookup is not None:
-        for i in range(n):
-            is_transition = (i < n - 1) and (familias[i] != familias[i + 1])
-            if is_transition:
-                setup[i] = lookup_setup_duration(setup_lookup, tipo_cod, matched_list[i], familias[i], familias[i + 1])
-
-    # imprevistas
-    imprevistas = np.zeros(n)
-    if imprevistas is not None:
-        # prefer model prediction if available
-        try:
-            if imprevistas_lookup is None and imprevistas_model is None:
-                imprevistas = np.zeros(n)
-            elif imprevistas_model is not None:
-                imp_cols = [c for c in ['tipo_cod', 'producto_cod', 'mes_num', 'anio', 'hora_inicio', 'dia_semana'] if c in X_m.columns]
-                X_imp_in = X_m[imp_cols].copy().fillna(0)
-                imprevistas = imprevistas_model.predict(X_imp_in.values if hasattr(imprevistas_model, 'predict') else X_imp_in)
-                imprevistas = np.nan_to_num(imprevistas, 0.0)
-            else:
-                for i in range(n):
-                    key = (tipo_cod, matched_list[i], month)
-                    try:
-                        imprevistas[i] = float(imprevistas_lookup.get(key, 0.0))
-                    except Exception:
-                        imprevistas[i] = 0.0
-        except Exception:
-            imprevistas = np.zeros(n)
-
-    # util_pct by product/family lookup (prefer product-level)
-    util_lookups = {'family': util_lookup, 'product': util_product_lookup}
-    util_pct = [lookup_util_pct(util_lookups, tipo_cod, familias[i], matched_list[i], 0.0) for i in range(n)]
-
-    # populate features needed by model before predicting
-    X_m['mtto_h'] = mtto
-    X_m['paradas_setup_h'] = setup
-    X_m['paradas_imprev_h'] = imprevistas
-    X_m['paradas_total_h'] = X_m['paradas_setup_h'] + X_m['paradas_imprev_h']
-
-    for c in feature_cols:
-        if c not in X_m.columns:
-            X_m[c] = 0
-
-    try:
-        preds = xgb_model.predict(X_m[feature_cols].values)
-    except Exception:
-        preds = np.full(n, 50.0)
-
-    # compute tiempo_lam_h per row (cantidad / product_t_h)
-    cantidad = df_feat.get('cantidad_t') if hasattr(df_feat, 'get') else df_feat['cantidad_t']
-    tiempo_lam = np.zeros(n)
-    for i in range(n):
-        try:
-            cant = float(cantidad.iloc[i]) if cantidad is not None else 0.0
-        except Exception:
-            cant = 0.0
-        prod = float(preds[i]) if i < len(preds) else 0.0
-        tiempo_lam[i] = (cant / prod) if prod > 0 else 0.0
-
-    # apply formula: ((cantidad/product)/util_pct) - tiempo_lam
-    paradas_calc = np.zeros(n)
-    for i in range(n):
-        u = util_pct[i]
-        if u and u > 0 and tiempo_lam[i] >= 0:
-            paradas_calc[i] = (tiempo_lam[i] / u) - tiempo_lam[i]
-        else:
-            paradas_calc[i] = imprevistas[i]
-
-    return pd.DataFrame({
-        "product_t_h": preds,
-        "mtto_h": mtto,
-        "setup_h": setup,
-        "paradas_imprev_h": paradas_calc,
-        "util_pct": util_pct,
-    })
-
-
-st.title("GEPA - Programación de Laminación (Prototipo)")
-
-st.header("Sube un archivo de la planta (TREN MORGAN)")
-uploaded_morgan = st.file_uploader("TREN MORGAN (.xlsx)", type=["xlsx"], key="morgan")
-start_date = st.date_input("Fecha inicio del primer material", value=date.today())
-start_time_text = st.text_input(
-    "Hora inicio del primer material",
-    value="00:00",
-    max_chars=5,
-    help="Usa el formato HH:MM",
-    placeholder="00:00",
-)
-
-
-def parse_start_time(raw_value: str) -> time:
-    cleaned = raw_value.strip()
+def parse_start_time(raw: str) -> time:
+    cleaned = raw.strip()
     if not re.fullmatch(r"\d{2}:\d{2}", cleaned):
-        raise ValueError("La hora debe tener el formato HH:MM usando solo números.")
-    hour_text, minute_text = cleaned.split(":")
-    hour = int(hour_text)
-    minute = int(minute_text)
-    if hour < 0 or hour > 23:
-        raise ValueError("La hora debe estar entre 00 y 23.")
-    if minute < 0 or minute > 59:
-        raise ValueError("Los minutos deben estar entre 00 y 59.")
-    return time(hour, minute)
+        raise ValueError("Formato HH:MM requerido.")
+    h, m = int(cleaned[:2]), int(cleaned[3:])
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        raise ValueError("Hora fuera de rango.")
+    return time(h, m)
 
 
-def build_initial_start(selected_date: date, raw_time: str) -> datetime:
-    return datetime.combine(selected_date, parse_start_time(raw_time))
+def to_excel_bytes(df):
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as w:
+        df.to_excel(w, index=False)
+    return buf.getvalue()
 
 
+# ─── SIDEBAR ────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown(f"""
+    <div style='text-align:center; padding:1rem 0 1.5rem;'>
+      <img src='{APR_LOGO}' width='120' style='filter: brightness(0) invert(1);'
+           onerror="this.style.display='none'"/>
+      <div style='margin-top:0.8rem; font-size:0.7rem; color:#888; letter-spacing:1px;'>
+        SISTEMA DE PROGRAMACIÓN
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("#### 📁 Archivo de entrada")
+    uploaded = st.file_uploader("Programa TREN MORGAN (.xlsx)", type=["xlsx"], key="morgan",
+                                 label_visibility="collapsed")
+
+    st.markdown("#### 📅 Parámetros de programación")
+    start_date = st.date_input("Fecha de inicio", value=date.today(), label_visibility="collapsed")
+    start_time_text = st.text_input("Hora inicio (HH:MM)", value="00:00", max_chars=5)
+
+    st.markdown("---")
+    st.markdown("""
+    <div style='font-size:0.72rem; color:#888; line-height:1.6;'>
+    <strong style='color:#ccc;'>Modelos activos</strong><br>
+    🤖 XGBoost — R² = 0.9998<br>
+    🌲 Random Forest — R² = 0.9922<br>
+    ⚙️ Optimizador Held-Karp<br>
+    📅 Scheduler secuencial 24h
+    </div>
+    """, unsafe_allow_html=True)
+
+    generar = st.button("⚡ Generar Programación")
+
+
+# ─── MAIN ───────────────────────────────────────────────────────────────────
 month = start_date.month
-year = start_date.year
+year  = start_date.year
 
+if uploaded is None:
+    st.markdown("""
+    <div style='background:white; border-radius:12px; padding:3rem; text-align:center;
+                box-shadow:0 2px 10px rgba(0,0,0,0.08); margin:1rem 0;'>
+      <div style='font-size:3rem;'>🏭</div>
+      <h3 style='color:#35352E; margin:1rem 0 0.5rem;'>Bienvenido a GEPA-LAMIN</h3>
+      <p style='color:#888; max-width:500px; margin:0 auto;'>
+        Carga el archivo Excel del programa de laminación del <strong>Tren Morgan</strong>
+        en el panel izquierdo y presiona <strong>Generar Programación</strong>.
+      </p>
+      <div style='margin-top:1.5rem; display:flex; justify-content:center; gap:2rem;
+                  flex-wrap:wrap; font-size:0.82rem; color:#aaa;'>
+        <span>📊 Predicción ML de productividad</span>
+        <span>⚙️ Optimización de secuencias</span>
+        <span>📅 Cronograma automático</span>
+        <span>📥 Exportación Excel</span>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-def to_excel_bytes(df: pd.DataFrame) -> bytes:
-    import io
-
-    with io.BytesIO() as buffer:
-        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False)
-        return buffer.getvalue()
-
-if uploaded_morgan is not None:
-    try:
-        df_m = pd.read_excel(uploaded_morgan, engine="openpyxl")
-        df_m_valid = validate_input_df(df_m)
-
-        # Optimize campaign order so the preview reflects what the backend will produce.
-        _, encoders_m, _, _, setup_lookup_m, _, _, _, _ = load_models()
-        df_m_valid = optimize_campaign_order(
-            df_m_valid,
-            tipo_cod=0,
-            encoders=encoders_m,
-            setup_lookup=setup_lookup_m,
-        )
-
-        X_m, df_m_feat = featurize(df_m_valid, int(month), int(year))
-
-        st.subheader(f"Preview TREN MORGAN — {len(df_m_valid)} filas (orden optimizado por campañas)")
-        st.dataframe(df_m_valid, height=400)
-
-        if st.button("Generar programación"):
-            # always send files to backend API
-            try:
-                initial_start = build_initial_start(start_date, start_time_text)
-                import requests
-                url = "https://gepa.onrender.com/predict/schedule"
-                files = {
-                    'file_morgan': ('morgan.xlsx', uploaded_morgan.getvalue()),
-                }
-                data = {'month': int(month), 'year': int(year), 'initial_start': initial_start.isoformat(sep=' ')}
-                with st.spinner('Enviando archivos al servidor...'):
-                    resp = requests.post(url, files=files, data=data, timeout=60)
-                if resp.status_code != 200:
-                    st.error(f"Error del servidor: {resp.status_code} - {resp.text}")
-                else:
-                    j = resp.json()
-                    for res in j.get('results', []):
-                        st.subheader(f"Programación {res.get('plant')}")
-                        excel_b64 = res.get('excel_b64')
-                        filename = res.get('filename', f"{res.get('plant')}_schedule.xlsx")
-                        if excel_b64:
-                            import base64, io
-                            excel_bytes = base64.b64decode(excel_b64)
-                            df_full = pd.read_excel(io.BytesIO(excel_bytes))
-                            if 't/día efectiva' in df_full.columns:
-                                df_full['t/día'] = df_full['t/día efectiva']
-                                df_full = df_full.drop(columns=['t/día efectiva'], errors='ignore')
-                            st.write(f"Mostrando planilla completa: {len(df_full)} filas")
-                            st.dataframe(df_full)
-                            st.download_button(f"Descargar {res.get('plant')}", excel_bytes, file_name=filename)
-                        else:
-                            st.warning("El servidor no devolvió el cronograma.")
-            except Exception as e:
-                st.error(f"Error enviando al servidor: {e}")
-    except Exception as e:
-        st.error(f"Error procesando los archivos: {e}")
 else:
-    st.info("Sube el archivo TREN MORGAN (.xlsx) para generar la programación en el servidor.")
+    # Preview del archivo
+    try:
+        df_preview = pd.read_excel(uploaded, engine="openpyxl")
+        uploaded.seek(0)
+
+        _, enc, _, _, setup_lk, _, _, _, _ = load_models()
+        df_valid_prev = validate_input_df(df_preview)
+        df_valid_prev = optimize_campaign_order(df_valid_prev, tipo_cod=0,
+                                                encoders=enc, setup_lookup=setup_lk)
+
+        st.markdown(f'<div class="section-title">📋 Orden optimizado — {len(df_valid_prev)} materiales</div>',
+                    unsafe_allow_html=True)
+        st.dataframe(df_valid_prev[["material", "cantidad_t"]].rename(
+            columns={"material": "Material", "cantidad_t": "Cantidad (t)"}),
+            use_container_width=True, height=200)
+    except Exception as e:
+        st.warning(f"Vista previa no disponible: {e}")
+
+    if generar:
+        try:
+            t_inicio = parse_start_time(start_time_text)
+        except ValueError as e:
+            st.error(str(e))
+            st.stop()
+
+        initial_start = datetime.combine(start_date, t_inicio)
+
+        with st.spinner("🔄 Enviando a la API y generando cronograma..."):
+            try:
+                import requests
+                uploaded.seek(0)
