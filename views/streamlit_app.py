@@ -203,7 +203,8 @@ st.markdown(f"""
   thead tr th {{ background: {COLOR_DARK} !important; color: white !important; }}
 
   /* Ocultar menú Streamlit */
-  #MainMenu, footer, header {{ visibility: hidden; }}
+  #MainMenu, footer, header { visibility: hidden; }
+[data-testid="collapsedControl"] { display: block !important; visibility: visible !important; }
 </style>
 """, unsafe_allow_html=True)
 
