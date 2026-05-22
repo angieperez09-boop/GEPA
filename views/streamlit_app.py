@@ -524,18 +524,20 @@ def render_gantt(df_clean, month, year):
     df_g = df_g.dropna(subset=["Inicio","Fin"])
     df_g["Mat"] = df_g["Material"].str[:32]
 
-    # Single trace — all materials vectorized so each bar gets full row height
-    bases   = [int(r["Inicio"].timestamp() * 1000) for _, r in df_g.iterrows()]
-    dur_ms  = [int((r["Fin"] - r["Inicio"]).total_seconds() * 1000) for _, r in df_g.iterrows()]
-    colors  = [PAL[i % len(PAL)] for i in range(len(df_g))]
-    texts   = [r["Inicio"].strftime("%d/%m") for _, r in df_g.iterrows()]
-    custom  = [
-        [r["Inicio"].strftime("%d/%m/%Y %H:%M"),
-         r["Fin"].strftime("%d/%m/%Y %H:%M"),
-         f"{(r['Fin'] - r['Inicio']).total_seconds() / 3600:.1f}",
-         f"{r.get('Cantidad (t) Programada', 0):,.0f}"]
-        for _, r in df_g.iterrows()
-    ]
+    bases, dur_ms, texts, custom = [], [], [], []
+    for _, r in df_g.iterrows():
+        t0_ms = int(r["Inicio"].timestamp() * 1000)
+        t1_ms = int(r["Fin"].timestamp() * 1000)
+        bases.append(t0_ms)
+        dur_ms.append(t1_ms - t0_ms)
+        texts.append(r["Inicio"].strftime("%d/%m"))
+        custom.append([
+            r["Inicio"].strftime("%d/%m/%Y %H:%M"),
+            r["Fin"].strftime("%d/%m/%Y %H:%M"),
+            f"{(r['Fin'] - r['Inicio']).total_seconds() / 3600:.1f}",
+            f"{r.get('Cantidad (t) Programada', 0):,.0f}",
+        ])
+    colors = [PAL[i % len(PAL)] for i in range(len(df_g))]
 
     fig = go.Figure(go.Bar(
         x=dur_ms, y=df_g["Mat"].tolist(), orientation="h",
@@ -587,6 +589,7 @@ def render_dashboard(df_clean, month, year):
     R="#DC2626"; B="#2563EB"; A="#F59E0B"; G="#059669"
     N="#0F172A"; N2="#1E293B"; W="#FFFFFF"; GR="#F8FAFC"; BR="#E2E8F0"
     T2="#475569"; T3="#94A3B8"
+    HOVER_STYLE = dict(bgcolor=W, font_size=11, bordercolor=BR, font_color=N)
 
     days    = calendar.monthrange(year,month)[1]
     avail_h = days*24
@@ -761,6 +764,9 @@ def render_dashboard(df_clean, month, year):
     sec("Distribución &amp; Mix de Producción", "#7C3AED")
     PAL12 = [R,B,A,G,"#7C3AED","#0891B2","#BE185D","#65A30D","#9333EA","#EA580C","#0F766E","#B45309"]
 
+    df_dist = df_clean.copy()
+    df_dist["Familia"] = df_dist["Material"].apply(get_family)
+
     cA, cB = st.columns([1.5, 1])
 
     # ── Carga semanal ─────────────────────────────────────────────────────────
@@ -802,7 +808,7 @@ def render_dashboard(df_clean, month, year):
                             zeroline=False, tickfont=dict(size=9, color=T3),
                             overlaying="y", side="right"),
                 bargap=.35,
-                hoverlabel=dict(bgcolor=W, font_size=11, bordercolor=BR, font_color=N),
+                hoverlabel=HOVER_STYLE,
             )
             ch("Carga semanal", "toneladas y horas por semana del mes",
                tags=[("Barras = t","#EFF6FF","#2563EB"),("Línea = h","#FFFBEB","#D97706")])
@@ -811,12 +817,13 @@ def render_dashboard(df_clean, month, year):
     # ── Donut composición ─────────────────────────────────────────────────────
     with cB:
         if "Cantidad (t) Programada" in df_clean.columns:
-            df_d = df_clean.copy()
-            df_d["Familia"] = df_d["Material"].apply(get_family)
+            df_d = df_dist
             fam_tons = df_d.groupby("Familia")["Cantidad (t) Programada"].sum().reset_index()
             fam_tons = fam_tons.sort_values("Cantidad (t) Programada", ascending=False)
             total_t_d = fam_tons["Cantidad (t) Programada"].sum()
-            fam_pcts = fam_tons["Cantidad (t) Programada"] / total_t_d if total_t_d > 0 else fam_tons["Cantidad (t) Programada"] * 0
+            fam_pcts = (fam_tons["Cantidad (t) Programada"] / total_t_d
+                        if total_t_d > 0
+                        else pd.Series(0.0, index=fam_tons.index))
             donut_txt = [f"{p:.0%}" if p >= 0.03 else "" for p in fam_pcts]
             fig_do = go.Figure(go.Pie(
                 labels=fam_tons["Familia"],
@@ -841,7 +848,7 @@ def render_dashboard(df_clean, month, year):
                     font=dict(size=8, color=N), bgcolor="rgba(0,0,0,0)",
                     tracegroupgap=2,
                 ),
-                hoverlabel=dict(bgcolor=W, font_size=11, bordercolor=BR, font_color=N),
+                hoverlabel=HOVER_STYLE,
                 annotations=[dict(
                     text=f"<b>{total_t_d:,.0f}</b><br><span style='font-size:9px'>t total</span>",
                     x=0.5, y=0.5, font=dict(size=14, color=N), showarrow=False,
@@ -855,8 +862,7 @@ def render_dashboard(df_clean, month, year):
     # ── Scatter productividad vs cantidad ─────────────────────────────────────
     with cC:
         if "Cantidad (t) Programada" in df_clean.columns and "Product. (t/h)" in df_clean.columns:
-            df_sc = df_clean.copy()
-            df_sc["Familia"] = df_sc["Material"].apply(get_family)
+            df_sc = df_dist
             unique_fams = df_sc["Familia"].unique().tolist()
             fam_color = {f: PAL12[i % len(PAL12)] for i, f in enumerate(unique_fams)}
             sc_colors = df_sc["Familia"].map(fam_color).tolist()
@@ -892,7 +898,7 @@ def render_dashboard(df_clean, month, year):
                            gridcolor=GR, zeroline=False, tickfont=dict(size=8, color=T3)),
                 yaxis=dict(title="Productividad (t/h)", title_font=dict(size=9, color=T2),
                            gridcolor=GR, zeroline=False, tickfont=dict(size=8, color=T3)),
-                hoverlabel=dict(bgcolor=W, font_size=11, bordercolor=BR, font_color=N),
+                hoverlabel=HOVER_STYLE,
             )
             ch("Productividad vs Cantidad", "burbuja = horas de laminación",
                tags=[("Cuadrante sup-der = ideal","#F0FDF4","#059669")])
@@ -940,7 +946,7 @@ def render_dashboard(df_clean, month, year):
                            ticktext=["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"],
                            tickfont=dict(size=9, color=T2), zeroline=False, showgrid=False),
                 yaxis=dict(autorange="reversed", showticklabels=False, showgrid=False),
-                hoverlabel=dict(bgcolor=W, font_size=11, bordercolor=BR, font_color=N),
+                hoverlabel=HOVER_STYLE,
             )
             ch(f"Carga diaria — {calendar.month_name[month]} {year}",
                "horas de laminación por día",
@@ -1059,7 +1065,7 @@ else:
             st.stop()
 
         initial_start = datetime.combine(start_date, t_inicio)
-        with st.spinner("Procesando con los modelos de IA…"):
+        with st.spinner("Procesando con los modelos de ML…"):
             try:
                 import requests
                 uploaded.seek(0)
