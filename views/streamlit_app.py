@@ -179,7 +179,13 @@ st.markdown(f"""
   [data-testid="stSidebar"] .stDateInput label,
   [data-testid="stSidebar"] .stTextInput label {{
     color: #CCCCCC !important;
-    font-size: 0.82rem;
+    font-size: 0.82rem; 
+    [data-testid="stSidebar"] input {{
+    color: #35352E !important;
+    background: #FFFFFF !important;
+  }}
+  [data-testid="stSidebar"] .stDateInput input {{
+    color: #35352E !important;
   }}
   section[data-testid="stSidebar"] {{
     min-width: 250px !important;
