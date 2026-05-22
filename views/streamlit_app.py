@@ -354,3 +354,115 @@ else:
             try:
                 import requests
                 uploaded.seek(0)
+                resp = requests.post(
+                    API_URL,
+                    files={"file_morgan": ("morgan.xlsx", uploaded.getvalue())},
+                    data={"month": month, "year": year,
+                          "initial_start": initial_start.isoformat(sep=" ")},
+                    timeout=90,
+                )
+            except Exception as e:
+                st.error(f"No se pudo conectar con la API: {e}")
+                st.stop()
+
+        if resp.status_code != 200:
+            st.error(f"Error API {resp.status_code}: {resp.text[:300]}")
+            st.stop()
+
+        j = resp.json()
+        for res in j.get("results", []):
+            excel_b64 = res.get("excel_b64")
+            filename  = res.get("filename", "cronograma.xlsx")
+
+            if not excel_b64:
+                st.warning("La API no devolvió el cronograma.")
+                continue
+
+            excel_bytes = base64.b64decode(excel_b64)
+            df = pd.read_excel(io.BytesIO(excel_bytes))
+
+            if "t/día efectiva" in df.columns:
+                df["t/día"] = df["t/día efectiva"]
+                df = df.drop(columns=["t/día efectiva"], errors="ignore")
+
+            # Detectar overflow
+            overflow_mask = df["Material"].astype(str).str.contains("OVERFLOW", na=False)
+            df_clean  = df[~overflow_mask]
+            df_over   = df[overflow_mask]
+
+            # ─── KPIs ───────────────────────────────────────────────────────
+            total_t    = df_clean["Cantidad (t) Programada"].sum() if "Cantidad (t) Programada" in df_clean else 0
+            total_h    = df_clean["Tiempo lam. (h)"].sum() if "Tiempo lam. (h)" in df_clean else 0
+            util_mean  = df_clean["Índice de utilización (%)"].mean() if "Índice de utilización (%)" in df_clean else 0
+            n_mats     = len(df_clean)
+            has_over   = len(df_over) > 0
+            over_h     = float(df_over["Tiempo lam. (h)"].sum()) if has_over else 0
+
+            st.markdown(f"""
+            <div class="kpi-container">
+              <div class="kpi-card">
+                <div class="kpi-label">📦 Toneladas programadas</div>
+                <div class="kpi-value">{total_t:,.0f}</div>
+                <div class="kpi-sub">{n_mats} órdenes de producción</div>
+              </div>
+              <div class="kpi-card gold">
+                <div class="kpi-label">⏱ Horas de laminación</div>
+                <div class="kpi-value">{total_h:,.1f}</div>
+                <div class="kpi-sub">de 744 h disponibles en el mes</div>
+              </div>
+              <div class="kpi-card green">
+                <div class="kpi-label">📊 Utilización promedio</div>
+                <div class="kpi-value">{util_mean:.1f}%</div>
+                <div class="kpi-sub">índice de eficiencia operativa</div>
+              </div>
+              <div class="kpi-card {'red' if has_over else ''}">
+                <div class="kpi-label">⚠️ Overflow mensual</div>
+                <div class="kpi-value" style="color:{'#C0392B' if has_over else '#27AE60'}">
+                  {'SÍ' if has_over else 'NO'}
+                </div>
+                <div class="kpi-sub">{'%.1f h fuera del mes' % over_h if has_over else 'Programa dentro del mes'}</div>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # ─── CRONOGRAMA ─────────────────────────────────────────────────
+            st.markdown(f'<div class="section-title">📅 Cronograma de producción — {month:02d}/{year}</div>',
+                        unsafe_allow_html=True)
+            st.dataframe(df_clean, use_container_width=True, height=420)
+
+            if has_over:
+                st.markdown(f"""
+                <div class="overflow-alert">
+                  ⚠️ &nbsp;<strong>ADVERTENCIA DE OVERFLOW:</strong>&nbsp;
+                  El programa excede la capacidad mensual en <strong>{over_h:.1f} horas</strong>.
+                  Se recomienda diferir algunas órdenes al mes siguiente.
+                </div>
+                """, unsafe_allow_html=True)
+
+            # ─── DESCARGA ───────────────────────────────────────────────────
+            st.markdown("<br>", unsafe_allow_html=True)
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                st.download_button(
+                    label=f"📥 Descargar cronograma {month:02d}/{year}",
+                    data=excel_bytes,
+                    file_name=filename,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+
+
+# ─── FOOTER ─────────────────────────────────────────────────────────────────
+st.markdown(f"""
+<div class="gepa-footer">
+  <div>
+    <strong>GEPA-LAMIN</strong> · Sistema Predictivo de Programación de Producción<br>
+    Especialización en Analítica Estratégica de Datos · 2026
+  </div>
+  <div style='display:flex; align-items:center; gap:1rem;'>
+    <span>Angie Pérez · Manuel Quintero · Javier Ortiz · Jhon Patiño</span>
+    <img src='{UPTC_LOGO}' height='36'
+         style='filter: brightness(0) invert(1); opacity:0.85;'
+         onerror="this.style.display='none'"/>
+  </div>
+</div>
+""", unsafe_allow_html=True)
