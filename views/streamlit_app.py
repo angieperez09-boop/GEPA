@@ -222,7 +222,7 @@ if uploaded_morgan is not None:
             try:
                 initial_start = build_initial_start(start_date, start_time_text)
                 import requests
-                url = "http://127.0.0.1:8000/predict/schedule"
+                url = "https://gepa.onrender.com/predict/schedule"
                 files = {
                     'file_morgan': ('morgan.xlsx', uploaded_morgan.getvalue()),
                 }
