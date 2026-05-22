@@ -5,6 +5,8 @@ import os
 from joblib import load
 from io import BytesIO
 from datetime import datetime
+from fastapi.responses import StreamingResponse
+import io
 
 from controllers.utils.parsers import (
     validate_input_df, featurize, lookup_setup_duration,
@@ -264,13 +266,16 @@ async def schedule(
                 initial_start_dt = None
         schedule_df = run_scheduler(df_feat, preds_df, month, year, initial_start=initial_start_dt)
 
-        out_name = f"{plant_name}_schedule_{year}-{month:02d}.xlsx"
-        out_path = os.path.join(OUTPUTS_DIR, out_name)
-        schedule_df.to_excel(out_path, index=False)
+       out_name = f"{plant_name}_schedule_{year}-{month:02d}.xlsx"
+        buffer = io.BytesIO()
+        schedule_df.to_excel(buffer, index=False)
+        buffer.seek(0)
+        excel_b64 = __import__('base64').b64encode(buffer.read()).decode()
 
         results.append({
             "plant": plant_name,
-            "download": out_path,
+            "filename": out_name,
+            "excel_b64": excel_b64,
             "preview": schedule_df.head(10).to_dict(orient="records"),
             "total_rows": int(len(schedule_df)),
         })
