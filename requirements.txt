@@ -9,3 +9,4 @@ pyarrow
 openpyxl
 requests
 streamlit
+plotly
